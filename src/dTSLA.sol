@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.20;
 
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/dev/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
@@ -29,6 +29,9 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
         MintOrRedeem mintOrRedeem;
     }
 
+    // Math Constants
+    uint256 constant PRECISION = 1e18;
+
     // Constants
     address constant SEPOLIA_FUNCTIONS_ROUTER = 0x65Dcc24F8ff9e51F10DCc7Ed1e4e2A61e6E14bd6;
     bytes32 constant DON_ID = 0x66756e2d657468657265756d2d6d61696e6e65742d3100000000000000000000;
@@ -49,6 +52,7 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
     string private s_redeemSourceCode;
     uint256 private s_portfolioBalance;
     mapping(bytes32 requestId => dTslaRequest request) private s_requestIdToRequest;
+    mapping(address user => uint256 pendingWithdrawlAmount) private s_userToWithdrawlAmount;
 
     // Functions
     constructor(string memory mintSourceCode, uint64 subId, string memory redeemSourceCode) 
@@ -92,8 +96,8 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
     // 1) sell tsla
     // 2) buys usdc
     // 3) send usdc to this contract
-    function sendRedeemRequest(uint256 amountdTesla) external {
-        uint256 amountTslaInUsdc = getUsdcValueOfUsd(getUsdValueOfTsla(amountdTesla));
+    function sendRedeemRequest(uint256 amountdTsla) external {
+        uint256 amountTslaInUsdc = getUsdcValueOfUsd(getUsdValueOfTsla(amountdTsla));
         if (amountTslaInUsdc < MINIMUM_WITHDRAWL_AMOUNT) {
             revert dTSLA__DoesntMeetMinimumWithdrawalAmount();
         }
@@ -102,21 +106,21 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
         req.initializeRequestForInlineJavaScript(s_redeemSourceCode);
         
         string[] memory args = new string[](2);
-        args[0] = amountdTesla.toString();
-        args[1] = amountTslaInUsdc.toString();
+        args[0] = Strings.toString(amountdTsla);
+        args[1] = Strings.toString(amountTslaInUsdc);
         req.setArgs(args);
         
         bytes32 requestId = _sendRequest(req.encodeCBOR(), i_subId, GAS_LIMIT, DON_ID);
-        s_requestIdToRequest[requestId] = dTslaRequest(amountdTesla, msg.sender, MintOrRedeem.redeem);
+        s_requestIdToRequest[requestId] = dTslaRequest(amountdTsla, msg.sender, MintOrRedeem.redeem);
 
-        _burn(msg.sender, amountdTesla);
+        _burn(msg.sender, amountdTsla);
     }
 
     function _redeemFulFillRequest(bytes32 requestId, bytes memory response) internal {
         // assume 18 decimals for now..
-        uint256 usdcAmount = uint256(bytes32(respons));
-        if usdcAmount == 0 {
-            uint256 amountOfdTSLABurned = s_requestIdToRequest[requestId].amountIfToken;
+        uint256 usdcAmount = uint256(bytes32(response));
+        if (usdcAmount == 0) {
+            uint256 amountOfdTSLABurned = s_requestIdToRequest[requestId].amountOfToken;
             _mint(s_requestIdToRequest[requestId].requester, amountOfdTSLABurned);
             return;
         }
@@ -177,7 +181,7 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
     }
 
     function getPendingWithdrawlAmount(address user) public view returns (uint256) {
-        return s_portfolioBalance
+        return s_portfolioBalance;
     }
 
     function getPortfolioBalance() public view returns (uint256) {
@@ -192,7 +196,7 @@ contract dTSLA is ConfirmedOwner, FunctionsClient, ERC20 {
         return s_mintSourceCode;
     }
 
-    function getRedeemSourceCode() public view returns (uint256) {
+    function getRedeemSourceCode() public view returns (string memory) {
         return s_redeemSourceCode;
     }
 
